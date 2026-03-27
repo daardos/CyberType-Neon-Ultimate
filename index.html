@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>CyberType Neon Ultimate</title>
+    <style>
+        :root {
+            --bg-dark: #050508;
+            --neon-blue: #00f2ff;
+            --neon-pink: #ff007a;
+            --text-dim: rgba(255, 255, 255, 0.15);
+        }
+
+        /* Анимированный градиент на фоне */
+        body {
+            background: linear-gradient(45deg, #050508, #0a0a1a, #1a0a1a, #050508);
+            background-size: 400% 400%;
+            animation: gradientBG 15s ease infinite;
+            color: white;
+            font-family: 'Consolas', monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+            transition: transform 0.05s linear;
+        }
+
+        @keyframes gradientBG {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        .lang-switch { margin-bottom: 20px; z-index: 10; }
+        .lang-btn {
+            background: rgba(255, 255, 255, 0.05); border: 1px solid var(--text-dim);
+            color: var(--text-dim); padding: 8px 20px; cursor: pointer;
+            transition: 0.3s; font-weight: bold; margin: 0 5px; backdrop-filter: blur(5px);
+        }
+        .lang-btn.active { border-color: var(--neon-blue); color: var(--neon-blue); box-shadow: 0 0 15px var(--neon-blue); }
+
+        #stats { display: flex; gap: 40px; font-size: 1.4rem; margin-bottom: 20px; z-index: 10; }
+        #stats span { color: var(--neon-pink); text-shadow: 0 0 10px var(--neon-pink); }
+
+        #display-area { position: relative; max-width: 800px; font-size: 28px; line-height: 1.4; min-height: 120px; z-index: 10; }
+        .char { color: var(--text-dim); position: relative; }
+        .char.correct { color: #fff; text-shadow: 0 0 8px var(--neon-blue); }
+        .char.error { color: var(--neon-pink); text-shadow: 0 0 10px var(--neon-pink); }
+
+        #cursor {
+            position: absolute; width: 3px; height: 1.2em;
+            background: var(--neon-blue); box-shadow: 0 0 10px var(--neon-blue);
+            animation: blink 0.7s infinite; transition: 0.08s ease-out;
+        }
+
+        @keyframes blink { 50% { opacity: 0; } }
+
+        #hidden-input { position: absolute; opacity: 0; }
+
+        #leaderboard {
+            margin-top: 40px; border: 1px solid rgba(255,255,255,0.1);
+            padding: 15px; width: 320px; text-align: center;
+            background: rgba(0, 0, 0, 0.3); backdrop-filter: blur(10px); border-radius: 8px;
+        }
+        .record-entry { font-size: 0.9rem; margin: 5px 0; color: #aaa; }
+        .record-entry b { color: var(--neon-blue); }
+
+        .hint { margin-top: 15px; color: #555; font-size: 0.75rem; letter-spacing: 1px; text-transform: uppercase; }
+    </style>
+</head>
+<body>
+
+    <div class="lang-switch">
+        <button class="lang-btn active" id="btn-en" onclick="setLang('en')">English</button>
+        <button class="lang-btn" id="btn-ru" onclick="setLang('ru')">Русский</button>
+    </div>
+
+    <div id="stats">
+        <div>WPM: <span id="wpm">0</span></div>
+        <div>TIME: <span id="timer">60</span>s</div>
+    </div>
+
+    <div id="display-area">
+        <div id="cursor"></div>
+        <div id="text-container"></div>
+    </div>
+
+    <input type="text" id="hidden-input" autofocus autocomplete="off">
+
+    <div id="leaderboard">
+        <div style="color: var(--neon-pink); margin-bottom: 10px; font-weight: bold; letter-spacing: 2px;">TOP SCORES</div>
+        <div id="records-list"></div>
+    </div>
+
+    <div class="hint">Click & type to start</div>
+
+    <script>
+        const texts = {
+            en: ["The evolution of technology is faster than human adaptation.", "Clean code is not written, it is evolved through constant refactoring.", "Do not comment bad code, rewrite it for better clarity.", "Programming is not about typing, it is about thinking."],
+            ru: ["Программирование — это искусство превращать кофе в чистый программный код.", "Сложность — главный враг любого крупного программного проекта.", "Сначала реши задачу, а потом пиши код, который реализует это решение.", "Хороший программист смотрит в обе стороны, переходя улицу с односторонним движением."]
+        };
+
+        let currentLang = 'en', currentIndex = 0, totalTyped = 0, errors = 0, timer = null, timeLeft = 60, isStarted = false;
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        function playClick(f) {
+            const osc = audioCtx.createOscillator(); const g = audioCtx.createGain();
+            osc.type = 'sine'; osc.frequency.setValueAtTime(f, audioCtx.currentTime);
+            g.gain.setValueAtTime(0.05, audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+            osc.connect(g); g.connect(audioCtx.destination); osc.start(); osc.stop(audioCtx.currentTime + 0.1);
+        }
+
+        function shake() {
+            document.body.style.transform = `translate(${Math.random()*6-3}px, ${Math.random()*6-3}px)`;
+            setTimeout(() => document.body.style.transform = 'none', 50);
+        }
+
+        function setLang(l) {
+            currentLang = l;
+            document.querySelectorAll('.lang-btn').forEach(b => b.classList.toggle('active', b.innerText.toLowerCase().includes(l) || (l === 'en' && b.id === 'btn-en')));
+            fullReset();
+        }
+
+        function renderText() {
+            const container = document.getElementById('text-container');
+            container.innerHTML = ''; currentIndex = 0;
+            const phrase = texts[currentLang][Math.floor(Math.random() * texts[currentLang].length)];
+            phrase.split('').forEach(c => {
+                const s = document.createElement('span'); s.innerText = c; s.className = 'char';
+                container.appendChild(s);
+            });
+            updateCursor();
+        }
+
+        function fullReset() {
+            clearInterval(timer); isStarted = false; timeLeft = 60; totalTyped = 0; errors = 0;
+            document.getElementById('wpm').innerText = '0'; document.getElementById('timer').innerText = '60';
+            renderText();
+            showRecords();
+        }
+
+        function updateCursor() {
+            const chars = document.querySelectorAll('.char');
+            const cursor = document.getElementById('cursor');
+            if (chars[currentIndex]) {
+                cursor.style.left = chars[currentIndex].offsetLeft + 'px';
+                cursor.style.top = chars[currentIndex].offsetTop + 'px';
+            }
+        }
+
+        function saveRecord(wpm) {
+            if(wpm <= 0) return;
+            let records = JSON.parse(localStorage.getItem('type_records') || '[]');
+            records.push({wpm, date: new Date().toLocaleDateString()});
+            records.sort((a,b) => b.wpm - a.wpm);
+            localStorage.setItem('type_records', JSON.stringify(records.slice(0, 5)));
+            showRecords();
+        }
+
+        function showRecords() {
+            const list = document.getElementById('records-list');
+            const records = JSON.parse(localStorage.getItem('type_records') || '[]');
+            list.innerHTML = records.map((r, i) => `<div class="record-entry">#${i+1} <b>${r.wpm} WPM</b> <small>${r.date}</small></div>`).join('') || 'No records yet';
+        }
+
+        document.getElementById('hidden-input').addEventListener('input', (e) => {
+            if (!isStarted) {
+                isStarted = true;
+                timer = setInterval(() => {
+                    timeLeft--;
+                    document.getElementById('timer').innerText = timeLeft;
+                    if (timeLeft <= 0) {
+                        const finalWpm = document.getElementById('wpm').innerText;
+                        saveRecord(parseInt(finalWpm));
+                        alert(`Time's up! Your speed: ${finalWpm} WPM`);
+                        fullReset();
+                    }
+                }, 1000);
+            }
+
+            const chars = document.querySelectorAll('.char');
+            const val = e.target.value;
+            const key = val[val.length - 1];
+
+            if (currentIndex < chars.length) {
+                if (key === chars[currentIndex].innerText) {
+                    chars[currentIndex].classList.add('correct');
+                    playClick(600);
+                } else {
+                    chars[currentIndex].classList.add('error');
+                    playClick(200);
+                    shake();
+                }
+                currentIndex++; totalTyped++; updateCursor();
+                const elapsedMin = (60 - timeLeft) / 60;
+                const wpm = Math.round((totalTyped / 5) / elapsedMin);
+                document.getElementById('wpm').innerText = wpm || 0;
+            }
+
+            if (currentIndex === chars.length) renderText();
+            e.target.value = '';
+        });
+
+        window.onclick = () => document.getElementById('hidden-input').focus();
+        fullReset();
+    </script>
+</body>
+</html>
